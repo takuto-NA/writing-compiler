@@ -6,6 +6,9 @@ import {
   resetSettings,
   saveSettings,
 } from './lib/settings'
+import { chatCompletions, pickAssistantText } from './lib/llm/openaiCompat'
+import { buildRewriterPrompt, buildValidatorPrompt } from './lib/compiler/prompts'
+import { tryParseJsonLoose, ValidatorJsonSchema, type ValidatorJson } from './lib/compiler/validatorSchema'
 
 function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -13,6 +16,14 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+
+  const [inputText, setInputText] = useState('')
+  const [validatorJson, setValidatorJson] = useState<ValidatorJson | null>(null)
+  const [validatorRaw, setValidatorRaw] = useState<string | null>(null)
+  const [outputText, setOutputText] = useState<string>('')
+  const [runError, setRunError] = useState<string | null>(null)
+  const [isRunningValidator, setIsRunningValidator] = useState(false)
+  const [isRunningRewriter, setIsRunningRewriter] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -37,6 +48,68 @@ function App() {
   const canRun = useMemo(() => {
     return Boolean(settings.apiKey && settings.baseUrl && settings.modelValidator && settings.modelRewriter)
   }, [settings.apiKey, settings.baseUrl, settings.modelValidator, settings.modelRewriter])
+
+  async function runValidator(): Promise<ValidatorJson> {
+    setRunError(null)
+    setIsRunningValidator(true)
+    try {
+      const prompt = buildValidatorPrompt(inputText)
+      const resp = await chatCompletions({
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey ?? '',
+        request: {
+          model: settings.modelValidator,
+          temperature: 0,
+          messages: [
+            { role: 'system', content: 'You are a strict JSON-only validator. Output JSON only.' },
+            { role: 'user', content: prompt },
+          ],
+        },
+      })
+      const raw = pickAssistantText(resp)
+      setValidatorRaw(raw)
+      const parsed = tryParseJsonLoose(raw)
+      const json = ValidatorJsonSchema.parse(parsed)
+      setValidatorJson(json)
+      return json
+    } catch (e) {
+      setValidatorJson(null)
+      const msg = e instanceof Error ? e.message : '判定に失敗しました'
+      setRunError(msg)
+      throw e
+    } finally {
+      setIsRunningValidator(false)
+    }
+  }
+
+  async function runRewriter(vj: ValidatorJson): Promise<string> {
+    setRunError(null)
+    setIsRunningRewriter(true)
+    try {
+      const prompt = buildRewriterPrompt(inputText, JSON.stringify(vj))
+      const resp = await chatCompletions({
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey ?? '',
+        request: {
+          model: settings.modelRewriter,
+          temperature: 0,
+          messages: [
+            { role: 'system', content: 'Output only the rewritten text. No explanations.' },
+            { role: 'user', content: prompt },
+          ],
+        },
+      })
+      const out = pickAssistantText(resp)
+      setOutputText(out)
+      return out
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '修正に失敗しました'
+      setRunError(msg)
+      throw e
+    } finally {
+      setIsRunningRewriter(false)
+    }
+  }
 
   return (
     <div className="min-h-dvh bg-zinc-950 text-zinc-50">
@@ -71,20 +144,27 @@ function App() {
                 <button
                   type="button"
                   className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                  disabled={!canRun}
+                  disabled={!canRun || isRunningValidator || isRunningRewriter || !inputText.trim()}
                   aria-disabled={!canRun}
-                  title={canRun ? '判定→修正（未実装）' : '設定でAPIキーとモデルを入力してください'}
+                  title={canRun ? '判定→修正' : '設定でAPIキーとモデルを入力してください'}
+                  onClick={async () => {
+                    const vj = await runValidator()
+                    await runRewriter(vj)
+                  }}
                 >
-                  判定→修正
+                  {isRunningValidator || isRunningRewriter ? '実行中…' : '判定→修正'}
                 </button>
                 <button
                   type="button"
                   className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                  disabled={!canRun}
+                  disabled={!canRun || isRunningValidator || isRunningRewriter || !inputText.trim()}
                   aria-disabled={!canRun}
-                  title={canRun ? '判定のみ（未実装）' : '設定でAPIキーとモデルを入力してください'}
+                  title={canRun ? '判定のみ' : '設定でAPIキーとモデルを入力してください'}
+                  onClick={async () => {
+                    await runValidator()
+                  }}
                 >
-                  判定のみ
+                  {isRunningValidator ? '判定中…' : '判定のみ'}
                 </button>
               </div>
             </div>
@@ -96,6 +176,8 @@ function App() {
                 id="inputText"
                 className="h-[45vh] w-full resize-none rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 lg:h-[60vh]"
                 placeholder="ここに文章を貼り付けてください…"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
               />
               <p className="mt-3 text-xs leading-relaxed text-zinc-400">
                 {isSettingsLoaded ? (
@@ -113,6 +195,7 @@ function App() {
               {settingsError ? (
                 <p className="mt-2 text-xs text-rose-300">{settingsError}</p>
               ) : null}
+              {runError ? <p className="mt-2 text-xs text-rose-300">{runError}</p> : null}
             </div>
           </section>
 
@@ -122,27 +205,90 @@ function App() {
               <button
                 type="button"
                 className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                disabled
-                aria-disabled="true"
-                title="次のステップで実装します"
+                disabled={!outputText}
+                aria-disabled={!outputText}
+                title={outputText ? 'コピー' : '出力がありません'}
+                onClick={async () => {
+                  await navigator.clipboard.writeText(outputText)
+                }}
               >
                 コピー
               </button>
             </div>
             <div className="p-4">
               <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
-                <p className="text-zinc-400">
-                  ここに改稿結果が表示されます（まだ未実装）。
-                </p>
+                {outputText ? (
+                  <pre className="whitespace-pre-wrap break-words">{outputText}</pre>
+                ) : (
+                  <p className="text-zinc-400">ここに改稿結果が表示されます。</p>
+                )}
               </div>
 
               <div className="mt-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   診断
                 </h3>
-                <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
-                  <p className="text-zinc-400">ここにValidatorのJSON診断を表示します（まだ未実装）。</p>
-                </div>
+                {validatorJson ? (
+                  <div className="mt-2 space-y-3">
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
+                        <span>pass: {String(validatorJson.pass)}</span>
+                        <span>error: {validatorJson.summary.error_count}</span>
+                        <span>warning: {validatorJson.summary.warning_count}</span>
+                        <span>info: {validatorJson.summary.info_count}</span>
+                        <span>unresolved: {validatorJson.summary.unresolved_links}</span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-950">
+                      <ul className="divide-y divide-zinc-800">
+                        {validatorJson.diagnostics.length === 0 ? (
+                          <li className="px-3 py-3 text-sm text-zinc-400">diagnostics: 0</li>
+                        ) : (
+                          validatorJson.diagnostics.map((d, idx) => {
+                            const badge =
+                              d.level === 'error'
+                                ? 'bg-rose-600/20 text-rose-200 ring-1 ring-rose-500/30'
+                                : d.level === 'warning'
+                                  ? 'bg-amber-600/20 text-amber-200 ring-1 ring-amber-500/30'
+                                  : 'bg-sky-600/20 text-sky-200 ring-1 ring-sky-500/30'
+                            return (
+                              <li key={idx} className="px-3 py-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`inline-flex rounded-md px-2 py-0.5 text-xs ${badge}`}>
+                                    {d.level}
+                                  </span>
+                                  <span className="text-xs text-zinc-400">{d.rule_id}</span>
+                                  <span className="text-xs text-zinc-400">sent#{d.sentence_index}</span>
+                                  <span className="text-xs text-zinc-400">
+                                    span {d.span.start}-{d.span.end}
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-sm text-zinc-200">{d.message}</div>
+                                <div className="mt-1 text-xs text-zinc-400">
+                                  evidence: <span className="text-zinc-300">{d.evidence}</span>
+                                </div>
+                              </li>
+                            )
+                          })
+                        )}
+                      </ul>
+                    </div>
+
+                    {validatorRaw ? (
+                      <details className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
+                        <summary className="cursor-pointer text-xs text-zinc-400">raw JSON</summary>
+                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">
+                          {validatorRaw}
+                        </pre>
+                      </details>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
+                    <p className="text-zinc-400">まだ判定していません。</p>
+                  </div>
+                )}
               </div>
             </div>
           </section>
