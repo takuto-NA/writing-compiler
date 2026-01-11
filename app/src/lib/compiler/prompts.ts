@@ -1,5 +1,10 @@
-export function buildValidatorPrompt(text: string): string {
-  return `あなたは「文章コンパイラの判定器」です。目的は、文章を上から順に読んだときに生じる「未解決リンク（参照・定義・基準・根拠など）」を検出し、重大度（error/warning/info）付きの診断として厳密JSONで出力することです。
+export const DEFAULT_SYSTEM_PROMPT_VALIDATOR =
+  'You are a strict JSON-only validator. Output JSON only.'
+
+export const DEFAULT_SYSTEM_PROMPT_REWRITER =
+  'Output only the rewritten text. No explanations.'
+
+export const DEFAULT_VALIDATOR_PROMPT_TEMPLATE = `あなたは「文章コンパイラの判定器」です。目的は、文章を上から順に読んだときに生じる「未解決リンク（参照・定義・基準・根拠など）」を検出し、重大度（error/warning/info）付きの診断として厳密JSONで出力することです。
 
 # 想定読者（重要）
 - 想定読者は「一般的なソフトウェア/ITの読者（開発者を含む）」である。
@@ -93,14 +98,12 @@ E. 抽象関係リンク（relation）
 
 # 入力
 <<TEXT>>
-${text}
+{{TEXT}}
 <<END>>
 
 出力は上記スキーマのJSONのみ。`
-}
 
-export function buildRewriterPrompt(original: string, diagnosticsJson: string): string {
-  return `あなたは「文章コンパイラの修正器」です。目的は、与えられた診断JSON（Validator出力）に従って、未解決リンク（error/warning）を解消する最小限の改稿を行うことです。
+export const DEFAULT_REWRITER_PROMPT_TEMPLATE = `あなたは「文章コンパイラの修正器」です。目的は、与えられた診断JSON（Validator出力）に従って、未解決リンク（error/warning）を解消する**最小限**の改稿を行うことです。
 
 # 最重要制約
 - 出力は改稿後の文章のみ。説明・箇条書きの理由・JSON・コードフェンスは禁止。
@@ -108,6 +111,31 @@ export function buildRewriterPrompt(original: string, diagnosticsJson: string): 
 - 文体（敬体/常体、カジュアル/フォーマル）は原文に合わせる。
 - 変更は必要最小限。文章全体の再構成や大幅な言い換えは禁止。
 
+# 重要（品質要件）
+- **括弧（ ）で注釈を足すだけ**で終わらせない。読者の理解が止まる原因を、本文の流れを壊さずに解消する。
+- 追加情報はできるだけ**文の中に自然に統合**する（括弧は略語展開など最小限に限定）。
+- 原文の段落/接続語（Next, However, など）や論旨は維持する。
+- 原則として、**diagnosticsに出ていない文は直さない**（直す場合は診断に直接関係する最小変更のみ）。
+
+# 修正方針（診断タイプ別）
+A. DEF（用語定義: DEF.UNDEFINED / DEF.WEAK）
+- error: 初出の直後に短い定義を追加する（「〜とは、…」を優先。括弧注釈だけにしない）。
+- 例: 「Mastraを…」→「Mastraは<一言定義>で、…」
+
+B. DEIXIS（指示語: DEIXIS.*）
+- error: 指示語を参照先の名詞に置換するか、同格で補う（「それ」→「その<名詞>」）。
+
+C. BASELINE（比較基準: BASELINE.*）
+- warning: 可能なら比較基準（比較対象・期間・指標）を1つ足す。
+- ただし、評価語（難しい/現実的でない 等）が「比較」を前提にしてしまう場合は、**比較語をやめて客観的な条件文に言い換える**ことで基準要求を解消してよい。
+  - 例: 「難しい」→「公式の提供形態（Node.jsで起動するサーバ）ではブラウザ単体で実行できない」
+  - 例: 「現実的ではない」→「公式がブラウザ単体ランタイムをサポートしていないため、そのままでは動かせない」
+
+D. EVIDENCE（根拠: EVIDENCE.*）
+- warning: 根拠を1つだけ短く補う（理由/前提/例示のいずれか）。
+
+E. RELATION（抽象関係: RELATION.*）
+- warning: 関係語を補う（「〜に基づき」「〜をXとして扱い」など）。\n+
 # 変更の優先順位
 1. errorを全て解消する
 2. warningを全て解消する
@@ -115,13 +143,32 @@ export function buildRewriterPrompt(original: string, diagnosticsJson: string): 
 
 # 入力
 <<ORIGINAL>>
-${original}
+{{ORIGINAL}}
 <<END>>
 
 <<DIAGNOSTICS_JSON>>
-${diagnosticsJson}
+{{DIAGNOSTICS_JSON}}
 <<END>>
 
 出力は改稿後の文章のみ。`
+
+export function applyTemplate(template: string, vars: Record<string, string>): string {
+  let out = template
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replaceAll(`{{${k}}}`, v)
+  }
+  return out
+}
+
+export function buildValidatorPromptFromTemplate(template: string, text: string): string {
+  return applyTemplate(template, { TEXT: text })
+}
+
+export function buildRewriterPromptFromTemplate(
+  template: string,
+  original: string,
+  diagnosticsJson: string,
+): string {
+  return applyTemplate(template, { ORIGINAL: original, DIAGNOSTICS_JSON: diagnosticsJson })
 }
 

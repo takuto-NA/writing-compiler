@@ -1,4 +1,10 @@
 import { del, get, set } from 'idb-keyval'
+import {
+  DEFAULT_REWRITER_PROMPT_TEMPLATE,
+  DEFAULT_SYSTEM_PROMPT_REWRITER,
+  DEFAULT_SYSTEM_PROMPT_VALIDATOR,
+  DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
+} from './compiler/prompts'
 
 export type AppSettings = {
   baseUrl: string
@@ -10,6 +16,12 @@ export type AppSettings = {
    */
   persistApiKey: boolean
   apiKey?: string
+
+  // Prompts (editable)
+  systemPromptValidator: string
+  systemPromptRewriter: string
+  validatorPromptTemplate: string
+  rewriterPromptTemplate: string
 }
 
 const SETTINGS_KEY = 'writing-compiler:settings:v1'
@@ -20,6 +32,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelRewriter: 'llama-3.1-70b-versatile',
   persistApiKey: false,
   apiKey: '',
+  systemPromptValidator: DEFAULT_SYSTEM_PROMPT_VALIDATOR,
+  systemPromptRewriter: DEFAULT_SYSTEM_PROMPT_REWRITER,
+  validatorPromptTemplate: DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
+  rewriterPromptTemplate: DEFAULT_REWRITER_PROMPT_TEMPLATE,
 }
 
 export async function loadSettings(): Promise<AppSettings> {

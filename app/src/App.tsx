@@ -7,7 +7,14 @@ import {
   saveSettings,
 } from './lib/settings'
 import { chatCompletions, pickAssistantText } from './lib/llm/openaiCompat'
-import { buildRewriterPrompt, buildValidatorPrompt } from './lib/compiler/prompts'
+import {
+  DEFAULT_REWRITER_PROMPT_TEMPLATE,
+  DEFAULT_SYSTEM_PROMPT_REWRITER,
+  DEFAULT_SYSTEM_PROMPT_VALIDATOR,
+  DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
+  buildRewriterPromptFromTemplate,
+  buildValidatorPromptFromTemplate,
+} from './lib/compiler/prompts'
 import { tryParseJsonLoose, ValidatorJsonSchema, type ValidatorJson } from './lib/compiler/validatorSchema'
 
 function App() {
@@ -53,7 +60,7 @@ function App() {
     setRunError(null)
     setIsRunningValidator(true)
     try {
-      const prompt = buildValidatorPrompt(inputText)
+      const prompt = buildValidatorPromptFromTemplate(settings.validatorPromptTemplate, inputText)
       const resp = await chatCompletions({
         baseUrl: settings.baseUrl,
         apiKey: settings.apiKey ?? '',
@@ -61,7 +68,7 @@ function App() {
           model: settings.modelValidator,
           temperature: 0,
           messages: [
-            { role: 'system', content: 'You are a strict JSON-only validator. Output JSON only.' },
+            { role: 'system', content: settings.systemPromptValidator || DEFAULT_SYSTEM_PROMPT_VALIDATOR },
             { role: 'user', content: prompt },
           ],
         },
@@ -86,7 +93,11 @@ function App() {
     setRunError(null)
     setIsRunningRewriter(true)
     try {
-      const prompt = buildRewriterPrompt(inputText, JSON.stringify(vj))
+      const prompt = buildRewriterPromptFromTemplate(
+        settings.rewriterPromptTemplate,
+        inputText,
+        JSON.stringify(vj),
+      )
       const resp = await chatCompletions({
         baseUrl: settings.baseUrl,
         apiKey: settings.apiKey ?? '',
@@ -94,7 +105,7 @@ function App() {
           model: settings.modelRewriter,
           temperature: 0,
           messages: [
-            { role: 'system', content: 'Output only the rewritten text. No explanations.' },
+            { role: 'system', content: settings.systemPromptRewriter || DEFAULT_SYSTEM_PROMPT_REWRITER },
             { role: 'user', content: prompt },
           ],
         },
@@ -402,6 +413,95 @@ function App() {
                   autoCorrect="off"
                   spellCheck={false}
                 />
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-zinc-300">プロンプト（実験）</div>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      ここで編集→保存すると、次の実行から反映されます。テンプレ内の置換は
+                      <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{TEXT}}"}</code>,
+                      <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{ORIGINAL}}"}</code>,
+                      <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{DIAGNOSTICS_JSON}}"}</code>
+                      です。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="systemPromptValidator">
+                      System Prompt（Validator）
+                    </label>
+                    <textarea
+                      id="systemPromptValidator"
+                      className="mt-1 h-20 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      value={settingsDraft.systemPromptValidator}
+                      onChange={(e) => setSettingsDraft((s) => ({ ...s, systemPromptValidator: e.target.value }))}
+                      placeholder={DEFAULT_SYSTEM_PROMPT_VALIDATOR}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="systemPromptRewriter">
+                      System Prompt（Rewriter）
+                    </label>
+                    <textarea
+                      id="systemPromptRewriter"
+                      className="mt-1 h-20 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      value={settingsDraft.systemPromptRewriter}
+                      onChange={(e) => setSettingsDraft((s) => ({ ...s, systemPromptRewriter: e.target.value }))}
+                      placeholder={DEFAULT_SYSTEM_PROMPT_REWRITER}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="validatorPromptTemplate">
+                      Validator Prompt Template（{"{{TEXT}}"}）
+                    </label>
+                    <textarea
+                      id="validatorPromptTemplate"
+                      className="mt-1 h-40 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      value={settingsDraft.validatorPromptTemplate}
+                      onChange={(e) => setSettingsDraft((s) => ({ ...s, validatorPromptTemplate: e.target.value }))}
+                      placeholder={DEFAULT_VALIDATOR_PROMPT_TEMPLATE}
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="rewriterPromptTemplate">
+                      Rewriter Prompt Template（{"{{ORIGINAL}}"}, {"{{DIAGNOSTICS_JSON}}"}）
+                    </label>
+                    <textarea
+                      id="rewriterPromptTemplate"
+                      className="mt-1 h-40 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      value={settingsDraft.rewriterPromptTemplate}
+                      onChange={(e) => setSettingsDraft((s) => ({ ...s, rewriterPromptTemplate: e.target.value }))}
+                      placeholder={DEFAULT_REWRITER_PROMPT_TEMPLATE}
+                      spellCheck={false}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    onClick={() => {
+                      setSettingsDraft((s) => ({
+                        ...s,
+                        systemPromptValidator: DEFAULT_SYSTEM_PROMPT_VALIDATOR,
+                        systemPromptRewriter: DEFAULT_SYSTEM_PROMPT_REWRITER,
+                        validatorPromptTemplate: DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
+                        rewriterPromptTemplate: DEFAULT_REWRITER_PROMPT_TEMPLATE,
+                      }))
+                    }}
+                  >
+                    プロンプトだけデフォルトに戻す
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
