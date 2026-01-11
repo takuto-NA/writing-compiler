@@ -52,6 +52,23 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isSettingsOpen) return
+
+    const prevOverflow = document.documentElement.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSettingsOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      document.documentElement.style.overflow = prevOverflow
+    }
+  }, [isSettingsOpen])
+
   const canRun = useMemo(() => {
     return Boolean(settings.apiKey && settings.baseUrl && settings.modelValidator && settings.modelRewriter)
   }, [settings.apiKey, settings.baseUrl, settings.modelValidator, settings.modelRewriter])
@@ -308,7 +325,7 @@ function App() {
 
       {isSettingsOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center"
+          className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/60 p-4 sm:items-center"
           role="dialog"
           aria-modal="true"
           aria-label="設定"
@@ -316,8 +333,8 @@ function App() {
             if (e.target === e.currentTarget) setIsSettingsOpen(false)
           }}
         >
-          <div className="w-full max-w-xl rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
-            <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+          <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
               <h2 className="text-sm font-semibold text-zinc-200">設定</h2>
               <button
                 type="button"
@@ -328,7 +345,7 @@ function App() {
               </button>
             </div>
 
-            <div className="space-y-4 p-4">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-zinc-300" htmlFor="baseUrl">
@@ -504,6 +521,10 @@ function App() {
                 </div>
               </div>
 
+              {settingsError ? <p className="text-xs text-rose-300">{settingsError}</p> : null}
+            </div>
+
+            <div className="shrink-0 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
@@ -553,8 +574,6 @@ function App() {
                   </button>
                 </div>
               </div>
-
-              {settingsError ? <p className="text-xs text-rose-300">{settingsError}</p> : null}
             </div>
           </div>
         </div>
