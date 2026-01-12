@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -16,6 +16,7 @@ import {
   buildValidatorPromptFromTemplate,
 } from './lib/compiler/prompts'
 import { tryParseJsonLoose, ValidatorJsonSchema, type ValidatorJson } from './lib/compiler/validatorSchema'
+import { Tabs, type TabItem } from './components/Tabs'
 
 function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
@@ -23,6 +24,8 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false)
   const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [settingsTab, setSettingsTab] = useState<'connection' | 'prompts'>('connection')
+  const [promptTab, setPromptTab] = useState<'validator' | 'rewriter'>('validator')
 
   const [inputText, setInputText] = useState('')
   const [validatorJson, setValidatorJson] = useState<ValidatorJson | null>(null)
@@ -52,6 +55,23 @@ function App() {
     }
   }, [])
 
+  const isSettingsDirty = useMemo(() => {
+    // Compare all editable settings fields.
+    return JSON.stringify(settings) !== JSON.stringify(settingsDraft)
+  }, [settings, settingsDraft])
+
+  const attemptCloseSettings = useCallback((): void => {
+    if (!isSettingsDirty) {
+      setIsSettingsOpen(false)
+      return
+    }
+    const ok = window.confirm('未保存の変更があります。破棄して閉じますか？')
+    if (!ok) return
+    setSettingsDraft(settings)
+    setSettingsError(null)
+    setIsSettingsOpen(false)
+  }, [isSettingsDirty, settings])
+
   useEffect(() => {
     if (!isSettingsOpen) return
 
@@ -59,7 +79,7 @@ function App() {
     document.documentElement.style.overflow = 'hidden'
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsSettingsOpen(false)
+      if (e.key === 'Escape') attemptCloseSettings()
     }
     window.addEventListener('keydown', onKeyDown)
 
@@ -67,7 +87,7 @@ function App() {
       window.removeEventListener('keydown', onKeyDown)
       document.documentElement.style.overflow = prevOverflow
     }
-  }, [isSettingsOpen])
+  }, [isSettingsOpen, attemptCloseSettings])
 
   const canRun = useMemo(() => {
     return Boolean(settings.apiKey && settings.baseUrl && settings.modelValidator && settings.modelRewriter)
@@ -155,6 +175,7 @@ function App() {
                 setSettingsDraft(settings)
                 setIsSettingsOpen(true)
                 setSettingsError(null)
+                setSettingsTab('connection')
               }}
             >
               設定
@@ -330,196 +351,281 @@ function App() {
           aria-modal="true"
           aria-label="設定"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setIsSettingsOpen(false)
+            if (e.target === e.currentTarget) attemptCloseSettings()
           }}
         >
-          <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+          <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
             <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
               <h2 className="text-sm font-semibold text-zinc-200">設定</h2>
               <button
                 type="button"
                 className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={() => attemptCloseSettings()}
               >
                 閉じる
               </button>
             </div>
 
+            <div className="shrink-0 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+              <Tabs
+                value={settingsTab}
+                onChange={(v) => setSettingsTab(v)}
+                items={
+                  [
+                    { value: 'connection', label: '接続/キー' },
+                    { value: 'prompts', label: 'プロンプト' },
+                  ] satisfies Array<TabItem<'connection' | 'prompts'>>
+                }
+              />
+            </div>
+
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-zinc-300" htmlFor="baseUrl">
-                    Base URL（OpenAI互換）
-                  </label>
-                  <input
-                    id="baseUrl"
-                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                    value={settingsDraft.baseUrl}
-                    onChange={(e) => setSettingsDraft((s) => ({ ...s, baseUrl: e.target.value }))}
-                    placeholder="https://api.groq.com/openai/v1"
-                    inputMode="url"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                  />
-                </div>
+              {settingsTab === 'connection' ? (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-zinc-300" htmlFor="baseUrl">
+                        Base URL（OpenAI互換）
+                      </label>
+                      <input
+                        id="baseUrl"
+                        className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        value={settingsDraft.baseUrl}
+                        onChange={(e) => setSettingsDraft((s) => ({ ...s, baseUrl: e.target.value }))}
+                        placeholder="https://api.groq.com/openai/v1"
+                        inputMode="url"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300" htmlFor="modelValidator">
-                    Model（Validator）
-                  </label>
-                  <input
-                    id="modelValidator"
-                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                    value={settingsDraft.modelValidator}
-                    onChange={(e) => setSettingsDraft((s) => ({ ...s, modelValidator: e.target.value }))}
-                    placeholder="例: llama-3.1-70b-versatile"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                  />
-                </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300" htmlFor="modelValidator">
+                        Model（Validator）
+                      </label>
+                      <input
+                        id="modelValidator"
+                        className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        value={settingsDraft.modelValidator}
+                        onChange={(e) => setSettingsDraft((s) => ({ ...s, modelValidator: e.target.value }))}
+                        placeholder="例: llama-3.1-70b-versatile"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300" htmlFor="modelRewriter">
-                    Model（Rewriter）
-                  </label>
-                  <input
-                    id="modelRewriter"
-                    className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                    value={settingsDraft.modelRewriter}
-                    onChange={(e) => setSettingsDraft((s) => ({ ...s, modelRewriter: e.target.value }))}
-                    placeholder="例: llama-3.1-70b-versatile"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="apiKey">
-                      API Key（Groq）
-                    </label>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      GitHub Pagesで動くため、キーはブラウザから直接送信されます。保存する場合は端末ローカル（IndexedDB）です。
-                    </p>
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300" htmlFor="modelRewriter">
+                        Model（Rewriter）
+                      </label>
+                      <input
+                        id="modelRewriter"
+                        className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        value={settingsDraft.modelRewriter}
+                        onChange={(e) => setSettingsDraft((s) => ({ ...s, modelRewriter: e.target.value }))}
+                        placeholder="例: llama-3.1-70b-versatile"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                    </div>
                   </div>
-                  <label className="flex shrink-0 items-center gap-2 text-xs text-zinc-300">
+
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <label className="block text-xs font-semibold text-zinc-300" htmlFor="apiKey">
+                          API Key（Groq）
+                        </label>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          GitHub Pagesで動くため、キーはブラウザから直接送信されます。保存する場合は端末ローカル（IndexedDB）です。
+                        </p>
+                      </div>
+                      <label className="flex shrink-0 items-center gap-2 text-xs text-zinc-300">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-indigo-600"
+                          checked={settingsDraft.persistApiKey}
+                          onChange={(e) =>
+                            setSettingsDraft((s) => ({ ...s, persistApiKey: e.target.checked }))
+                          }
+                        />
+                        この端末に保存
+                      </label>
+                    </div>
+
                     <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-indigo-600"
-                      checked={settingsDraft.persistApiKey}
-                      onChange={(e) =>
-                        setSettingsDraft((s) => ({ ...s, persistApiKey: e.target.checked }))
-                      }
-                    />
-                    この端末に保存
-                  </label>
-                </div>
-
-                <input
-                  id="apiKey"
-                  className="mt-3 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                  value={settingsDraft.apiKey ?? ''}
-                  onChange={(e) => setSettingsDraft((s) => ({ ...s, apiKey: e.target.value }))}
-                  placeholder="gsk_..."
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-              </div>
-
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-zinc-300">プロンプト（実験）</div>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      ここで編集→保存すると、次の実行から反映されます。テンプレ内の置換は
-                      <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{TEXT}}"}</code>,
-                      <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{ORIGINAL}}"}</code>,
-                      <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{DIAGNOSTICS_JSON}}"}</code>
-                      です。
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="systemPromptValidator">
-                      System Prompt（Validator）
-                    </label>
-                    <textarea
-                      id="systemPromptValidator"
-                      className="mt-1 h-20 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                      value={settingsDraft.systemPromptValidator}
-                      onChange={(e) => setSettingsDraft((s) => ({ ...s, systemPromptValidator: e.target.value }))}
-                      placeholder={DEFAULT_SYSTEM_PROMPT_VALIDATOR}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="systemPromptRewriter">
-                      System Prompt（Rewriter）
-                    </label>
-                    <textarea
-                      id="systemPromptRewriter"
-                      className="mt-1 h-20 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                      value={settingsDraft.systemPromptRewriter}
-                      onChange={(e) => setSettingsDraft((s) => ({ ...s, systemPromptRewriter: e.target.value }))}
-                      placeholder={DEFAULT_SYSTEM_PROMPT_REWRITER}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="validatorPromptTemplate">
-                      Validator Prompt Template（{"{{TEXT}}"}）
-                    </label>
-                    <textarea
-                      id="validatorPromptTemplate"
-                      className="mt-1 h-40 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                      value={settingsDraft.validatorPromptTemplate}
-                      onChange={(e) => setSettingsDraft((s) => ({ ...s, validatorPromptTemplate: e.target.value }))}
-                      placeholder={DEFAULT_VALIDATOR_PROMPT_TEMPLATE}
+                      id="apiKey"
+                      className="mt-3 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                      value={settingsDraft.apiKey ?? ''}
+                      onChange={(e) => setSettingsDraft((s) => ({ ...s, apiKey: e.target.value }))}
+                      placeholder="gsk_..."
+                      autoCapitalize="none"
+                      autoCorrect="off"
                       spellCheck={false}
                     />
                   </div>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-zinc-300">プロンプト</div>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          ここで編集→保存すると、次の実行から反映されます。テンプレ内の置換は
+                          <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{TEXT}}"}</code>,
+                          <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{ORIGINAL}}"}</code>,
+                          <code className="mx-1 rounded bg-zinc-950 px-1 py-0.5">{"{{DIAGNOSTICS_JSON}}"}</code>
+                          です。
+                        </p>
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-300" htmlFor="rewriterPromptTemplate">
-                      Rewriter Prompt Template（{"{{ORIGINAL}}"}, {"{{DIAGNOSTICS_JSON}}"}）
-                    </label>
-                    <textarea
-                      id="rewriterPromptTemplate"
-                      className="mt-1 h-40 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                      value={settingsDraft.rewriterPromptTemplate}
-                      onChange={(e) => setSettingsDraft((s) => ({ ...s, rewriterPromptTemplate: e.target.value }))}
-                      placeholder={DEFAULT_REWRITER_PROMPT_TEMPLATE}
-                      spellCheck={false}
-                    />
+                    <div className="mt-3">
+                      <Tabs
+                        value={promptTab}
+                        onChange={(v) => setPromptTab(v)}
+                        items={
+                          [
+                            { value: 'validator', label: 'Validator' },
+                            { value: 'rewriter', label: 'Rewriter' },
+                          ] satisfies Array<TabItem<'validator' | 'rewriter'>>
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-4 grid gap-4">
+                      {promptTab === 'validator' ? (
+                        <>
+                          <div>
+                            <label
+                              className="block text-xs font-semibold text-zinc-300"
+                              htmlFor="systemPromptValidator"
+                            >
+                              System Prompt（Validator）
+                            </label>
+                            <textarea
+                              id="systemPromptValidator"
+                              className="mt-1 h-24 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                              value={settingsDraft.systemPromptValidator}
+                              onChange={(e) =>
+                                setSettingsDraft((s) => ({ ...s, systemPromptValidator: e.target.value }))
+                              }
+                              placeholder={DEFAULT_SYSTEM_PROMPT_VALIDATOR}
+                              spellCheck={false}
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                              className="block text-xs font-semibold text-zinc-300"
+                              htmlFor="validatorPromptTemplate"
+                            >
+                              Validator Prompt Template（{"{{TEXT}}"}）
+                            </label>
+                            <textarea
+                              id="validatorPromptTemplate"
+                              className="mt-1 h-60 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                              value={settingsDraft.validatorPromptTemplate}
+                              onChange={(e) =>
+                                setSettingsDraft((s) => ({ ...s, validatorPromptTemplate: e.target.value }))
+                              }
+                              placeholder={DEFAULT_VALIDATOR_PROMPT_TEMPLATE}
+                              spellCheck={false}
+                            />
+                          </div>
+
+                          <details className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
+                            <summary className="cursor-pointer text-xs text-zinc-400">
+                              プレビュー（組み立て後 / Validator）
+                            </summary>
+                            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">
+                              {buildValidatorPromptFromTemplate(
+                                settingsDraft.validatorPromptTemplate || DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
+                                inputText,
+                              )}
+                            </pre>
+                          </details>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300" htmlFor="systemPromptRewriter">
+                              System Prompt（Rewriter）
+                            </label>
+                            <textarea
+                              id="systemPromptRewriter"
+                              className="mt-1 h-24 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                              value={settingsDraft.systemPromptRewriter}
+                              onChange={(e) =>
+                                setSettingsDraft((s) => ({ ...s, systemPromptRewriter: e.target.value }))
+                              }
+                              placeholder={DEFAULT_SYSTEM_PROMPT_REWRITER}
+                              spellCheck={false}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300" htmlFor="rewriterPromptTemplate">
+                              Rewriter Prompt Template（{"{{ORIGINAL}}"}, {"{{DIAGNOSTICS_JSON}}"}）
+                            </label>
+                            <textarea
+                              id="rewriterPromptTemplate"
+                              className="mt-1 h-60 w-full resize-y rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                              value={settingsDraft.rewriterPromptTemplate}
+                              onChange={(e) =>
+                                setSettingsDraft((s) => ({ ...s, rewriterPromptTemplate: e.target.value }))
+                              }
+                              placeholder={DEFAULT_REWRITER_PROMPT_TEMPLATE}
+                              spellCheck={false}
+                            />
+                          </div>
+
+                          <details className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-3 text-sm text-zinc-300">
+                            <summary className="cursor-pointer text-xs text-zinc-400">
+                              プレビュー（組み立て後 / Rewriter）
+                            </summary>
+                            {validatorJson ? (
+                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-300">
+                                {buildRewriterPromptFromTemplate(
+                                  settingsDraft.rewriterPromptTemplate || DEFAULT_REWRITER_PROMPT_TEMPLATE,
+                                  inputText,
+                                  JSON.stringify(validatorJson),
+                                )}
+                              </pre>
+                            ) : (
+                              <p className="mt-2 text-xs text-zinc-400">
+                                判定結果（diagnostics）がまだありません。「判定のみ」または「判定→修正」を実行してください。
+                              </p>
+                            )}
+                          </details>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                        onClick={() => {
+                          setSettingsDraft((s) => ({
+                            ...s,
+                            systemPromptValidator: DEFAULT_SYSTEM_PROMPT_VALIDATOR,
+                            systemPromptRewriter: DEFAULT_SYSTEM_PROMPT_REWRITER,
+                            validatorPromptTemplate: DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
+                            rewriterPromptTemplate: DEFAULT_REWRITER_PROMPT_TEMPLATE,
+                          }))
+                        }}
+                      >
+                        プロンプトだけデフォルトに戻す
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div className="mt-3 flex justify-end">
-                  <button
-                    type="button"
-                    className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                    onClick={() => {
-                      setSettingsDraft((s) => ({
-                        ...s,
-                        systemPromptValidator: DEFAULT_SYSTEM_PROMPT_VALIDATOR,
-                        systemPromptRewriter: DEFAULT_SYSTEM_PROMPT_REWRITER,
-                        validatorPromptTemplate: DEFAULT_VALIDATOR_PROMPT_TEMPLATE,
-                        rewriterPromptTemplate: DEFAULT_REWRITER_PROMPT_TEMPLATE,
-                      }))
-                    }}
-                  >
-                    プロンプトだけデフォルトに戻す
-                  </button>
-                </div>
-              </div>
+                </>
+              )}
 
               {settingsError ? <p className="text-xs text-rose-300">{settingsError}</p> : null}
             </div>
@@ -535,6 +641,7 @@ function App() {
                     setSettings(fresh)
                     setSettingsDraft(fresh)
                     setSettingsError(null)
+                    setSettingsTab('connection')
                   }}
                 >
                   設定をリセット
@@ -545,8 +652,8 @@ function App() {
                     className="rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     onClick={() => {
                       setSettingsDraft(settings)
-                      setIsSettingsOpen(false)
                       setSettingsError(null)
+                      setIsSettingsOpen(false)
                     }}
                   >
                     キャンセル
